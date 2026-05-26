@@ -1,402 +1,375 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  HeartPulse, Activity, Receipt, Pill, Sparkles, Utensils, Building, 
-  ChevronLeft, CheckCircle2, CalendarDays, ArrowRight, Save, 
-  ShieldAlert, Microscope, BedDouble, FileText, Wrench, Car, 
-  ArrowUpDown, Shield, Info, Settings, Database, X, RefreshCw, ServerCrash
-} from 'lucide-react';
-
-// --- CONFIGURATION ---
-const APP_TITLE = "TDMH Continuous Quality Improvement Dashboard";
-const HOSPITAL_NAME = "Taytay Doctors Multispecialty Hospital";
-
-// Hardcoded Google Apps Script Web App URL
-const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbyBlw1-RAawcTeBYQk1p33iHW4_H6p9lhxZWirL6SDDPwCkd7SGfe7Tv0drdKZitRLH/exec";
-
-const departments = [
-  { id: 'admitting', name: 'Admitting', icon: Building, color: 'text-indigo-500', bgColor: 'bg-indigo-50', hoverColor: 'hover:bg-indigo-100', ringColor: 'ring-indigo-200' },
-  { id: 'er', name: 'Emergency Services', icon: Activity, color: 'text-red-500', bgColor: 'bg-red-50', hoverColor: 'hover:bg-red-100', ringColor: 'ring-red-200' },
-  { id: 'nursing', name: 'Patient Care / Nursing Services', icon: HeartPulse, color: 'text-rose-500', bgColor: 'bg-rose-50', hoverColor: 'hover:bg-rose-100', ringColor: 'ring-rose-200' },
-  { id: 'or', name: 'OR', icon: ShieldAlert, color: 'text-teal-500', bgColor: 'bg-teal-50', hoverColor: 'hover:bg-teal-100', ringColor: 'ring-teal-200' },
-  { id: 'lab', name: 'Laboratory', icon: Microscope, color: 'text-purple-500', bgColor: 'bg-purple-50', hoverColor: 'hover:bg-purple-100', ringColor: 'ring-purple-200' },
-  { id: 'pharmacy', name: 'Pharmacy', icon: Pill, color: 'text-blue-500', bgColor: 'bg-blue-50', hoverColor: 'hover:bg-blue-100', ringColor: 'ring-blue-200' },
-  { id: 'dietary', name: 'Dietary', icon: Utensils, color: 'text-orange-500', bgColor: 'bg-orange-50', hoverColor: 'hover:bg-orange-100', ringColor: 'ring-orange-200' },
-  { id: 'cashier', name: 'Cashier', icon: Receipt, color: 'text-emerald-500', bgColor: 'bg-emerald-50', hoverColor: 'hover:bg-emerald-100', ringColor: 'ring-emerald-200' },
-  { id: 'billing', name: 'Billing', icon: FileText, color: 'text-green-500', bgColor: 'bg-green-50', hoverColor: 'hover:bg-green-100', ringColor: 'ring-green-200' },
-  { id: 'hmo', name: 'Philhealth / HMO Officer', icon: CheckCircle2, color: 'text-cyan-500', bgColor: 'bg-cyan-50', hoverColor: 'hover:bg-cyan-100', ringColor: 'ring-cyan-200' },
-  { id: 'housekeeping', name: 'GS (Housekeeping)', icon: Sparkles, color: 'text-amber-500', bgColor: 'bg-amber-50', hoverColor: 'hover:bg-amber-100', ringColor: 'ring-amber-200' },
-  { id: 'linens', name: 'GS (Linens)', icon: BedDouble, color: 'text-yellow-500', bgColor: 'bg-yellow-50', hoverColor: 'hover:bg-yellow-100', ringColor: 'ring-yellow-200' },
-  { id: 'maintenance', name: 'GS (Maintenance)', icon: Wrench, color: 'text-slate-500', bgColor: 'bg-slate-50', hoverColor: 'hover:bg-slate-100', ringColor: 'ring-slate-200' },
-  { id: 'parking', name: 'GS (Parking)', icon: Car, color: 'text-zinc-500', bgColor: 'bg-zinc-50', hoverColor: 'hover:bg-zinc-100', ringColor: 'ring-zinc-200' },
-  { id: 'elevator', name: 'GS (Elevator)', icon: ArrowUpDown, color: 'text-neutral-500', bgColor: 'bg-neutral-50', hoverColor: 'hover:bg-neutral-100', ringColor: 'ring-neutral-200' },
-  { id: 'security', name: 'GS (Security)', icon: Shield, color: 'text-stone-500', bgColor: 'bg-stone-50', hoverColor: 'hover:bg-stone-100', ringColor: 'ring-stone-200' },
-];
-
-const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-
-export default function App() {
-  const [selectedDeptId, setSelectedDeptId] = useState(null);
-  const [selectedMonth, setSelectedMonth] = useState('January');
-  
-  // App State
-  const [reportData, setReportData] = useState({});
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [scriptUrl, setScriptUrl] = useState(GOOGLE_SHEET_API_URL);
-  
-  // Loading & Status States
-  const [isLoading, setIsLoading] = useState(true); // Start loading immediately
-  const [isSaving, setIsSaving] = useState(false);
-  const [showSavedMsg, setShowSavedMsg] = useState(false);
-  
-  const editorRef = useRef(null);
-
-  // Initialize empty data structure & auto-fetch on boot
-  useEffect(() => {
-    const initialData = {};
-    departments.forEach(d => {
-      initialData[d.id] = {};
-      months.forEach(m => initialData[d.id][m] = "");
-    });
-    setReportData(initialData);
-
-    // Fetch immediately using the integrated URL
-    fetchData(GOOGLE_SHEET_API_URL, initialData);
-  }, []);
-
-  // Sync editor content when changing views
-  useEffect(() => {
-    if (editorRef.current && selectedDeptId) {
-      const content = reportData[selectedDeptId]?.[selectedMonth] || "";
-      editorRef.current.innerHTML = content;
-    }
-  }, [selectedDeptId, selectedMonth, reportData]);
-
-  // --- GOOGLE SHEETS API CALLS ---
-  const fetchData = async (urlToFetch, baseData = reportData) => {
-    if (!urlToFetch) return;
-    setIsLoading(true);
-    try {
-      const response = await fetch(urlToFetch);
-      const data = await response.json();
-      
-      // Merge fetched data with base structure
-      const mergedData = JSON.parse(JSON.stringify(baseData));
-      for (const dept in data) {
-        if (mergedData[dept]) {
-          for (const month in data[dept]) {
-            mergedData[dept][month] = data[dept][month];
-          }
-        }
-      }
-      setReportData(mergedData);
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      // We don't alert loudly here just in case the sheet is brand new/empty, 
-      // but we log it to console for debugging.
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSaveTable = async () => {
-    if (!editorRef.current || !selectedDeptId || !scriptUrl) return;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TDMH CQI Dashboard</title>
     
-    setIsSaving(true);
-    const htmlContent = editorRef.current.innerHTML;
+    <!-- Tailwind CSS for Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome for robust, React-safe icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- React & ReactDOM (Translators) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel to understand JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        /* Custom styles for the Rich Text Editor */
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .cqi-editor { outline: none; min-height: 400px; }
+        .cqi-editor:empty:before {
+            content: "Click here and press Ctrl+V to paste your table from Google Docs...";
+            color: #94a3b8;
+            font-weight: 600;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            min-height: 400px;
+        }
+        .cqi-editor table { width: 100%; border-collapse: collapse; margin-top: 10px; background: rgba(255,255,255,0.8); border-radius: 8px; overflow: hidden; }
+        .cqi-editor th, .cqi-editor td { border: 1px solid #cbd5e1; padding: 12px; font-size: 14px; color: #334155; vertical-align: top; }
+        .cqi-editor th { background-color: #f1f5f9; font-weight: bold; }
+        .cqi-editor p { margin: 0 0 8px 0; }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
 
-    // Update local state immediately for snappy UI response
-    const newData = { ...reportData };
-    if (!newData[selectedDeptId]) newData[selectedDeptId] = {};
-    newData[selectedDeptId][selectedMonth] = htmlContent;
-    setReportData(newData);
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
 
-    // Send POST to Google Apps Script
-    try {
-      const payload = {
-        deptId: selectedDeptId,
-        month: selectedMonth,
-        html: htmlContent
-      };
+        // --- CONFIGURATION ---
+        const APP_TITLE = "TDMH Continuous Quality Improvement Dashboard";
+        const HOSPITAL_NAME = "Taytay Doctors Multispecialty Hospital";
+        const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbyBlw1-RAawcTeBYQk1p33iHW4_H6p9lhxZWirL6SDDPwCkd7SGfe7Tv0drdKZitRLH/exec";
 
-      // We use no-cors mode to bypass browser preflight restrictions with Google Web Apps
-      await fetch(scriptUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ payload: JSON.stringify(payload) })
-      });
+        // Mapped to FontAwesome Icons for React stability
+        const departments = [
+            { id: 'admitting', name: 'Admitting', icon: 'fa-building', color: 'text-indigo-500', bgColor: 'bg-indigo-50', hoverColor: 'hover:bg-indigo-100', ringColor: 'ring-indigo-200' },
+            { id: 'er', name: 'Emergency Services', icon: 'fa-truck-medical', color: 'text-red-500', bgColor: 'bg-red-50', hoverColor: 'hover:bg-red-100', ringColor: 'ring-red-200' },
+            { id: 'nursing', name: 'Patient Care / Nursing', icon: 'fa-user-nurse', color: 'text-rose-500', bgColor: 'bg-rose-50', hoverColor: 'hover:bg-rose-100', ringColor: 'ring-rose-200' },
+            { id: 'or', name: 'OR', icon: 'fa-mask-ventilator', color: 'text-teal-500', bgColor: 'bg-teal-50', hoverColor: 'hover:bg-teal-100', ringColor: 'ring-teal-200' },
+            { id: 'lab', name: 'Laboratory', icon: 'fa-microscope', color: 'text-purple-500', bgColor: 'bg-purple-50', hoverColor: 'hover:bg-purple-100', ringColor: 'ring-purple-200' },
+            { id: 'pharmacy', name: 'Pharmacy', icon: 'fa-pills', color: 'text-blue-500', bgColor: 'bg-blue-50', hoverColor: 'hover:bg-blue-100', ringColor: 'ring-blue-200' },
+            { id: 'dietary', name: 'Dietary', icon: 'fa-utensils', color: 'text-orange-500', bgColor: 'bg-orange-50', hoverColor: 'hover:bg-orange-100', ringColor: 'ring-orange-200' },
+            { id: 'cashier', name: 'Cashier', icon: 'fa-cash-register', color: 'text-emerald-500', bgColor: 'bg-emerald-50', hoverColor: 'hover:bg-emerald-100', ringColor: 'ring-emerald-200' },
+            { id: 'billing', name: 'Billing', icon: 'fa-file-invoice-dollar', color: 'text-green-500', bgColor: 'bg-green-50', hoverColor: 'hover:bg-green-100', ringColor: 'ring-green-200' },
+            { id: 'hmo', name: 'Philhealth / HMO', icon: 'fa-hospital-user', color: 'text-cyan-500', bgColor: 'bg-cyan-50', hoverColor: 'hover:bg-cyan-100', ringColor: 'ring-cyan-200' },
+            { id: 'housekeeping', name: 'GS (Housekeeping)', icon: 'fa-broom', color: 'text-amber-500', bgColor: 'bg-amber-50', hoverColor: 'hover:bg-amber-100', ringColor: 'ring-amber-200' },
+            { id: 'linens', name: 'GS (Linens)', icon: 'fa-bed', color: 'text-yellow-500', bgColor: 'bg-yellow-50', hoverColor: 'hover:bg-yellow-100', ringColor: 'ring-yellow-200' },
+            { id: 'maintenance', name: 'GS (Maintenance)', icon: 'fa-wrench', color: 'text-slate-500', bgColor: 'bg-slate-50', hoverColor: 'hover:bg-slate-100', ringColor: 'ring-slate-200' },
+            { id: 'parking', name: 'GS (Parking)', icon: 'fa-square-parking', color: 'text-zinc-500', bgColor: 'bg-zinc-50', hoverColor: 'hover:bg-zinc-100', ringColor: 'ring-zinc-200' },
+            { id: 'elevator', name: 'GS (Elevator)', icon: 'fa-elevator', color: 'text-neutral-500', bgColor: 'bg-neutral-50', hoverColor: 'hover:bg-neutral-100', ringColor: 'ring-neutral-200' },
+            { id: 'security', name: 'GS (Security)', icon: 'fa-shield-halved', color: 'text-stone-500', bgColor: 'bg-stone-50', hoverColor: 'hover:bg-stone-100', ringColor: 'ring-stone-200' },
+        ];
 
-      setShowSavedMsg(true);
-      setTimeout(() => setShowSavedMsg(false), 3000);
-    } catch (error) {
-      console.error("Save error", error);
-      alert("Failed to save to Google Sheets.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
+        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-  const saveUrlAndFetch = () => {
-    fetchData(scriptUrl);
-    setIsSettingsOpen(false);
-  };
-
-  const clearTable = () => {
-    if (confirm("Are you sure you want to clear the data for this month?")) {
-       if (editorRef.current) {
-           editorRef.current.innerHTML = "";
-           handleSaveTable();
-       }
-    }
-  };
-
-  const selectedDept = departments.find(d => d.id === selectedDeptId);
-
-  // --- VIEWS ---
-  const renderDashboard = () => (
-    <div className="max-w-7xl mx-auto px-4 py-12 animate-in fade-in zoom-in-95 duration-300 relative z-10">
-      <div className="text-center mb-16">
-        <h2 className="text-slate-600 font-semibold tracking-wide uppercase mb-2 drop-shadow-sm">Select a Department</h2>
-        <p className="text-slate-600 text-sm max-w-2xl mx-auto font-medium">
-          Access the editable workspace for monthly feedback logs, patient incidents, and continuous quality improvement (CQI) reports.
-        </p>
-      </div>
-
-      {isLoading ? (
-        <div className="flex flex-col items-center justify-center py-20 text-indigo-600">
-          <RefreshCw size={48} className="animate-spin mb-4" />
-          <p className="font-bold">Syncing with Live Database...</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-12">
-          {departments.map((dept) => (
-            <div key={dept.id} className="flex flex-col items-center group cursor-pointer" onClick={() => setSelectedDeptId(dept.id)}>
-              <div className={`
-                w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center 
-                bg-white/40 backdrop-blur-xl border border-white/60 shadow-xl
-                transition-all duration-300 ease-in-out
-                ${dept.color} 
-                group-hover:shadow-2xl group-hover:-translate-y-2 group-hover:bg-white/60 group-hover:ring-4 ${dept.ringColor} ring-offset-2 ring-offset-transparent
-              `}>
-                <dept.icon size={40} strokeWidth={1.5} className="drop-shadow-sm" />
-              </div>
-              <div className="mt-5 text-center px-2">
-                <h3 className="font-bold text-slate-700 text-sm md:text-md group-hover:text-slate-900 transition-colors drop-shadow-sm leading-tight">
-                  {dept.name}
-                </h3>
-                <p className="text-xs font-semibold text-slate-500 mt-2 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  Manage Data <ArrowRight size={12} className="ml-1" />
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
-  const renderDepartmentDetail = () => (
-    <div className="max-w-[90rem] mx-auto px-4 py-8 animate-in fade-in slide-in-from-bottom-4 duration-500 relative z-10">
-      
-      {/* Detail Header & Back Button */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 pb-6 border-b border-white/30 gap-4">
-        <div className="flex items-center space-x-4">
-          <div className={`p-3 rounded-2xl bg-white/50 backdrop-blur-md border border-white/60 shadow-sm ${selectedDept.color}`}>
-            <selectedDept.icon size={32} className="drop-shadow-sm" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800 drop-shadow-sm">{selectedDept.name}</h2>
-            <p className="text-sm font-medium text-slate-600">CQI Data Entry Workspace</p>
-          </div>
-        </div>
-        <button 
-          onClick={() => setSelectedDeptId(null)}
-          className="flex items-center px-4 py-2 text-sm font-bold text-slate-600 bg-white/40 backdrop-blur-md border border-white/60 rounded-xl hover:bg-white/60 transition-all shadow-sm hover:shadow w-max"
-        >
-          <ChevronLeft size={16} className="mr-1" /> Back to Dashboard
-        </button>
-      </div>
-
-      <div className="flex flex-col gap-6">
-        {/* Top Bar: Months (Horizontal Tabs) */}
-        <div className="w-full bg-white/40 backdrop-blur-xl rounded-2xl shadow-sm border border-white/60 p-2">
-          <div className="flex items-center px-4 py-2 border-b border-white/30 mb-2">
-            <CalendarDays size={16} className="text-indigo-500 mr-2" /> 
-            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">2026 Months</h3>
-          </div>
-          <div className="flex overflow-x-auto space-x-2 pb-2 px-2 scrollbar-hide">
-            {months.map(month => {
-              const hasData = reportData[selectedDeptId] && reportData[selectedDeptId][month] && reportData[selectedDeptId][month].trim().length > 0;
-              const isSelected = selectedMonth === month;
-              return (
-                <button
-                  key={month}
-                  onClick={() => { setSelectedMonth(month); }}
-                  className={`
-                    flex-shrink-0 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 flex items-center
-                    ${isSelected ? `bg-white/90 shadow-md text-slate-900 border border-white` : 'text-slate-600 hover:bg-white/60 border border-transparent'}
-                  `}
-                >
-                  <span className={isSelected ? selectedDept.color : ''}>{month}</span>
-                  {hasData && <span className={`ml-2 w-2 h-2 rounded-full ${isSelected ? 'bg-current' : 'bg-slate-400'} ${isSelected ? selectedDept.color : ''}`}></span>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Workspace Area */}
-        <div className="w-full">
-          <div className="bg-white/40 backdrop-blur-xl rounded-3xl shadow-xl border border-white/60 p-6 lg:p-8 min-h-[600px] flex flex-col">
+        function App() {
+            const [selectedDeptId, setSelectedDeptId] = useState(null);
+            const [selectedMonth, setSelectedMonth] = useState('January');
             
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 border-b-2 border-white/40 pb-4 gap-4">
-              <div>
-                <h3 className="text-2xl font-bold text-slate-800 drop-shadow-sm flex items-center">
-                  {selectedMonth} Workspace
-                </h3>
-                <p className="text-sm text-slate-600 mt-1 font-medium flex items-center">
-                  <Info size={14} className="mr-1 text-indigo-500 flex-shrink-0" /> 
-                  Copy the table directly from your Google Doc and paste it inside the box below.
-                </p>
-              </div>
-              
-              <div className="flex items-center space-x-3 w-full lg:w-auto justify-end">
-                {showSavedMsg && (
-                  <span className="text-emerald-600 font-bold text-sm animate-in fade-in flex items-center whitespace-nowrap">
-                    <CheckCircle2 size={16} className="mr-1"/> Cloud Saved!
-                  </span>
-                )}
-                {reportData[selectedDeptId] && reportData[selectedDeptId][selectedMonth] && reportData[selectedDeptId][selectedMonth].trim().length > 0 && (
-                   <button onClick={clearTable} disabled={isSaving} className="px-4 py-2 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-colors border border-red-200 bg-white/50 shadow-sm disabled:opacity-50">
-                     Clear Data
-                   </button>
-                )}
-                <button 
-                  onClick={handleSaveTable}
-                  disabled={isSaving}
-                  className="flex items-center px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all text-sm whitespace-nowrap disabled:opacity-70 disabled:cursor-not-allowed"
-                >
-                  {isSaving ? <RefreshCw size={16} className="mr-2 animate-spin" /> : <Save size={16} className="mr-2" />}
-                  {isSaving ? 'Saving...' : 'Save to Google Sheets'}
-                </button>
-              </div>
-            </div>
+            const [reportData, setReportData] = useState({});
+            const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+            const [scriptUrl, setScriptUrl] = useState(GOOGLE_SHEET_API_URL);
+            
+            const [isLoading, setIsLoading] = useState(true);
+            const [isSaving, setIsSaving] = useState(false);
+            const [showSavedMsg, setShowSavedMsg] = useState(false);
+            
+            const editorRef = useRef(null);
 
-            {/* The "Literal Paste" Rich Text Editor */}
-            <div className="flex-1 flex flex-col relative min-h-[400px]">
-              <style dangerouslySetInnerHTML={{__html: `
-                .cqi-editor { outline: none; min-height: 400px; }
-                .cqi-editor:empty:before {
-                  content: "Click here and press Ctrl+V to paste your table from Google Docs...";
-                  color: #94a3b8;
-                  font-weight: 600;
-                  display: flex;
-                  justify-content: center;
-                  align-items: center;
-                  height: 100%;
-                  min-height: 400px;
+            // Initialize empty data structure & auto-fetch
+            useEffect(() => {
+                const initialData = {};
+                departments.forEach(d => {
+                    initialData[d.id] = {};
+                    months.forEach(m => initialData[d.id][m] = "");
+                });
+                setReportData(initialData);
+                fetchData(GOOGLE_SHEET_API_URL, initialData);
+            }, []);
+
+            // Sync editor content
+            useEffect(() => {
+                if (editorRef.current && selectedDeptId) {
+                    const content = reportData[selectedDeptId]?.[selectedMonth] || "";
+                    editorRef.current.innerHTML = content;
                 }
-                .cqi-editor table { width: 100%; border-collapse: collapse; margin-top: 10px; background: rgba(255,255,255,0.8); border-radius: 8px; overflow: hidden; }
-                .cqi-editor th, .cqi-editor td { border: 1px solid #cbd5e1; padding: 12px; font-size: 14px; color: #334155; vertical-align: top; }
-                .cqi-editor th { background-color: #f1f5f9; font-weight: bold; }
-                .cqi-editor p { margin: 0 0 8px 0; }
-              `}} />
-              
-              <div 
-                ref={editorRef}
-                className={`cqi-editor flex-1 w-full p-6 rounded-2xl bg-white/70 backdrop-blur-md border border-white focus:ring-4 focus:ring-indigo-300 shadow-inner overflow-auto transition-all ${isSaving ? 'opacity-50 pointer-events-none' : ''}`}
-                contentEditable="true"
-                suppressContentEditableWarning={true}
-                onBlur={handleSaveTable}
-                onPaste={() => { setTimeout(handleSaveTable, 200); }}
-                style={{ cursor: "text" }}
-              />
-            </div>
-            
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+            }, [selectedDeptId, selectedMonth, reportData]);
 
-  return (
-    <div className="min-h-screen font-sans relative overflow-x-hidden bg-gradient-to-br from-blue-100 via-indigo-50 to-teal-100">
-      {/* Background blobs */}
-      <div className="fixed top-[-10%] left-[-10%] w-[40rem] h-[40rem] bg-indigo-300 rounded-full mix-blend-multiply filter blur-[100px] opacity-50 z-0 pointer-events-none"></div>
-      <div className="fixed top-[20%] right-[-10%] w-[40rem] h-[40rem] bg-teal-200 rounded-full mix-blend-multiply filter blur-[100px] opacity-50 z-0 pointer-events-none"></div>
-      
-      {/* Global Header */}
-      <header className="bg-white/60 backdrop-blur-xl border-b border-white/50 shadow-sm sticky top-0 z-50">
-        <div className="max-w-[90rem] mx-auto px-4 h-20 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-xl flex items-center justify-center shadow-lg border border-white/20">
-              <Activity className="text-white" size={24} />
-            </div>
-            <div>
-              <h1 className="text-lg md:text-xl font-extrabold text-slate-800 leading-tight drop-shadow-sm line-clamp-1">
-                {APP_TITLE}
-              </h1>
-              <p className="text-xs text-slate-600 font-bold tracking-wide uppercase">{HOSPITAL_NAME}</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            <div className="hidden md:flex items-center space-x-2 text-sm text-indigo-900 bg-white/50 backdrop-blur-md border border-white/60 shadow-sm px-5 py-2 rounded-full font-bold">
-              <CalendarDays size={16} className="text-indigo-600" />
-              <span>Year: 2026</span>
-            </div>
-            {/* Settings Button - Kept for flexibility in case you ever need to change the URL */}
-            <button 
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2.5 rounded-full bg-white/50 backdrop-blur-md border border-white/60 shadow-sm hover:bg-white/80 transition-all text-slate-600 flex items-center"
-              title="Database Link Settings"
-            >
-              <Database size={20} />
-            </button>
-          </div>
-        </div>
-      </header>
+            // --- GOOGLE SHEETS API CALLS ---
+            const fetchData = async (urlToFetch, baseData = reportData) => {
+                if (!urlToFetch) return;
+                setIsLoading(true);
+                try {
+                    const response = await fetch(urlToFetch);
+                    const data = await response.json();
+                    
+                    const mergedData = JSON.parse(JSON.stringify(baseData));
+                    for (const dept in data) {
+                        if (mergedData[dept]) {
+                            for (const month in data[dept]) {
+                                mergedData[dept][month] = data[dept][month];
+                            }
+                        }
+                    }
+                    setReportData(mergedData);
+                } catch (error) {
+                    console.error("Error fetching data:", error);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
 
-      {/* Settings Modal (Now only opens manually) */}
-      {isSettingsOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white max-w-lg w-full overflow-hidden p-6 relative">
-            <button onClick={() => setIsSettingsOpen(false)} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 bg-white/50 rounded-full transition-colors">
-              <X size={20} />
-            </button>
-            
-            <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center drop-shadow-sm">
-              <Database className="mr-3 text-indigo-600" size={24} /> Database Connection
-            </h2>
-            <p className="text-slate-600 text-sm font-medium mb-6">
-              This dashboard is permanently linked to your Google Apps Script backend. You can update the link here if you ever recreate the sheet.
-            </p>
+            const handleSaveTable = async () => {
+                if (!editorRef.current || !selectedDeptId || !scriptUrl) return;
+                
+                setIsSaving(true);
+                const htmlContent = editorRef.current.innerHTML;
 
-            <div className="space-y-4">
-              <div>
-                <input 
-                  type="text" 
-                  value={scriptUrl}
-                  onChange={(e) => setScriptUrl(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-white shadow-inner bg-white/60 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all text-sm font-medium text-slate-500"
-                />
-              </div>
+                const newData = { ...reportData };
+                if (!newData[selectedDeptId]) newData[selectedDeptId] = {};
+                newData[selectedDeptId][selectedMonth] = htmlContent;
+                setReportData(newData);
 
-              <button 
-                onClick={saveUrlAndFetch}
-                className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center justify-center"
-              >
-                <ServerCrash size={20} className="mr-2" />
-                Update & Re-Sync Connection
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                try {
+                    const payload = {
+                        deptId: selectedDeptId,
+                        month: selectedMonth,
+                        html: htmlContent
+                    };
 
-      <main className="relative z-10 pb-20">
-        {selectedDeptId ? renderDepartmentDetail() : renderDashboard()}
-      </main>
-    </div>
-  );
-}
+                    await fetch(scriptUrl, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ payload: JSON.stringify(payload) })
+                    });
+
+                    setShowSavedMsg(true);
+                    setTimeout(() => setShowSavedMsg(false), 3000);
+                } catch (error) {
+                    console.error("Save error", error);
+                    alert("Failed to save to Google Sheets.");
+                } finally {
+                    setIsSaving(false);
+                }
+            };
+
+            const saveUrlAndFetch = () => {
+                fetchData(scriptUrl);
+                setIsSettingsOpen(false);
+            };
+
+            const clearTable = () => {
+                if (confirm("Are you sure you want to clear the data for this month?")) {
+                    if (editorRef.current) {
+                        editorRef.current.innerHTML = "";
+                        handleSaveTable();
+                    }
+                }
+            };
+
+            const selectedDept = departments.find(d => d.id === selectedDeptId);
+
+            // --- VIEWS ---
+            const renderDashboard = () => (
+                <div className="max-w-7xl mx-auto px-4 py-12 relative z-10">
+                    <div className="text-center mb-16">
+                        <h2 className="text-slate-600 font-semibold tracking-wide uppercase mb-2 drop-shadow-sm">Select a Department</h2>
+                        <p className="text-slate-600 text-sm max-w-2xl mx-auto font-medium">
+                            Access the editable workspace for monthly feedback logs, patient incidents, and continuous quality improvement (CQI) reports.
+                        </p>
+                    </div>
+
+                    {isLoading ? (
+                        <div className="flex flex-col items-center justify-center py-20 text-indigo-600">
+                            <i className="fa-solid fa-arrows-rotate text-5xl animate-spin mb-4"></i>
+                            <p className="font-bold text-lg">Syncing with Live Database...</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-12">
+                            {departments.map((dept) => (
+                                <div key={dept.id} className="flex flex-col items-center group cursor-pointer" onClick={() => setSelectedDeptId(dept.id)}>
+                                    <div className={`w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center bg-white/40 backdrop-blur-xl border border-white/60 shadow-xl transition-all duration-300 ease-in-out ${dept.color} group-hover:shadow-2xl group-hover:-translate-y-2 group-hover:bg-white/60 group-hover:ring-4 ${dept.ringColor} ring-offset-2 ring-offset-transparent`}>
+                                        <i className={`fa-solid ${dept.icon} text-4xl drop-shadow-sm`}></i>
+                                    </div>
+                                    <div className="mt-5 text-center px-2">
+                                        <h3 className="font-bold text-slate-700 text-sm md:text-md group-hover:text-slate-900 transition-colors drop-shadow-sm leading-tight">
+                                            {dept.name}
+                                        </h3>
+                                        <p className="text-xs font-semibold text-slate-500 mt-2 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                            Manage Data <i className="fa-solid fa-arrow-right text-xs ml-1"></i>
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+
+            const renderDepartmentDetail = () => (
+                <div className="max-w-[90rem] mx-auto px-4 py-8 relative z-10">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 pb-6 border-b border-white/30 gap-4">
+                        <div className="flex items-center space-x-4">
+                            <div className={`p-4 rounded-2xl bg-white/50 backdrop-blur-md border border-white/60 shadow-sm ${selectedDept.color}`}>
+                                <i className={`fa-solid ${selectedDept.icon} text-2xl drop-shadow-sm`}></i>
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-800 drop-shadow-sm">{selectedDept.name}</h2>
+                                <p className="text-sm font-medium text-slate-600">CQI Data Entry Workspace</p>
+                            </div>
+                        </div>
+                        <button onClick={() => setSelectedDeptId(null)} className="flex items-center px-4 py-2 text-sm font-bold text-slate-600 bg-white/40 backdrop-blur-md border border-white/60 rounded-xl hover:bg-white/60 transition-all shadow-sm hover:shadow w-max">
+                            <i className="fa-solid fa-chevron-left text-xs mr-2"></i> Back to Dashboard
+                        </button>
+                    </div>
+
+                    <div className="flex flex-col gap-6">
+                        <div className="w-full bg-white/40 backdrop-blur-xl rounded-2xl shadow-sm border border-white/60 p-2">
+                            <div className="flex items-center px-4 py-2 border-b border-white/30 mb-2">
+                                <i className="fa-solid fa-calendar-days text-sm text-indigo-500 mr-2"></i> 
+                                <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">2026 Months</h3>
+                            </div>
+                            <div className="flex overflow-x-auto space-x-2 pb-2 px-2 scrollbar-hide">
+                                {months.map(month => {
+                                    const hasData = reportData[selectedDeptId] && reportData[selectedDeptId][month] && reportData[selectedDeptId][month].trim().length > 0;
+                                    const isSelected = selectedMonth === month;
+                                    return (
+                                        <button key={month} onClick={() => setSelectedMonth(month)} className={`flex-shrink-0 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 flex items-center ${isSelected ? 'bg-white/90 shadow-md text-slate-900 border border-white' : 'text-slate-600 hover:bg-white/60 border border-transparent'}`}>
+                                            <span className={isSelected ? selectedDept.color : ''}>{month}</span>
+                                            {hasData && <span className={`ml-2 w-2 h-2 rounded-full ${isSelected ? 'bg-current' : 'bg-slate-400'} ${isSelected ? selectedDept.color : ''}`}></span>}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="w-full">
+                            <div className="bg-white/40 backdrop-blur-xl rounded-3xl shadow-xl border border-white/60 p-6 lg:p-8 min-h-[600px] flex flex-col">
+                                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 border-b-2 border-white/40 pb-4 gap-4">
+                                    <div>
+                                        <h3 className="text-2xl font-bold text-slate-800 drop-shadow-sm flex items-center">
+                                            {selectedMonth} Workspace
+                                        </h3>
+                                        <p className="text-sm text-slate-600 mt-1 font-medium flex items-center">
+                                            <i className="fa-solid fa-circle-info text-xs mr-2 text-indigo-500 flex-shrink-0"></i> 
+                                            Copy the table directly from your Google Doc and paste it inside the box below.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center space-x-3 w-full lg:w-auto justify-end">
+                                        {showSavedMsg && (
+                                            <span className="text-emerald-600 font-bold text-sm flex items-center whitespace-nowrap">
+                                                <i className="fa-solid fa-circle-check text-sm mr-1"></i> Cloud Saved!
+                                            </span>
+                                        )}
+                                        {reportData[selectedDeptId] && reportData[selectedDeptId][selectedMonth] && reportData[selectedDeptId][selectedMonth].trim().length > 0 && (
+                                            <button onClick={clearTable} disabled={isSaving} className="px-4 py-2 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-colors border border-red-200 bg-white/50 shadow-sm disabled:opacity-50">
+                                                Clear Data
+                                            </button>
+                                        )}
+                                        <button onClick={handleSaveTable} disabled={isSaving} className="flex items-center px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all text-sm whitespace-nowrap disabled:opacity-70 disabled:cursor-not-allowed">
+                                            {isSaving ? <i className="fa-solid fa-arrows-rotate text-sm mr-2 animate-spin"></i> : <i className="fa-solid fa-floppy-disk text-sm mr-2"></i>}
+                                            {isSaving ? 'Saving...' : 'Save to Google Sheets'}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="flex-1 flex flex-col relative min-h-[400px]">
+                                    <div 
+                                        ref={editorRef}
+                                        className={`cqi-editor flex-1 w-full p-6 rounded-2xl bg-white/70 backdrop-blur-md border border-white focus:ring-4 focus:ring-indigo-300 shadow-inner overflow-auto transition-all ${isSaving ? 'opacity-50 pointer-events-none' : ''}`}
+                                        contentEditable="true"
+                                        suppressContentEditableWarning={true}
+                                        onBlur={handleSaveTable}
+                                        onPaste={() => setTimeout(handleSaveTable, 200)}
+                                        style={{ cursor: "text" }}
+                                    ></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen font-sans relative overflow-x-hidden bg-gradient-to-br from-blue-100 via-indigo-50 to-teal-100">
+                    <div className="fixed top-[-10%] left-[-10%] w-[40rem] h-[40rem] bg-indigo-300 rounded-full mix-blend-multiply filter blur-[100px] opacity-50 z-0 pointer-events-none"></div>
+                    <div className="fixed top-[20%] right-[-10%] w-[40rem] h-[40rem] bg-teal-200 rounded-full mix-blend-multiply filter blur-[100px] opacity-50 z-0 pointer-events-none"></div>
+                    
+                    <header className="bg-white/60 backdrop-blur-xl border-b border-white/50 shadow-sm sticky top-0 z-50">
+                        <div className="max-w-[90rem] mx-auto px-4 h-20 flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                                <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-xl flex items-center justify-center shadow-lg border border-white/20">
+                                    <i className="fa-solid fa-heart-pulse text-xl text-white"></i>
+                                </div>
+                                <div>
+                                    <h1 className="text-lg md:text-xl font-extrabold text-slate-800 leading-tight drop-shadow-sm line-clamp-1">
+                                        {APP_TITLE}
+                                    </h1>
+                                    <p className="text-xs text-slate-600 font-bold tracking-wide uppercase">{HOSPITAL_NAME}</p>
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-center space-x-3">
+                                <div className="hidden md:flex items-center space-x-2 text-sm text-indigo-900 bg-white/50 backdrop-blur-md border border-white/60 shadow-sm px-5 py-2 rounded-full font-bold">
+                                    <i className="fa-solid fa-calendar-days text-sm text-indigo-600"></i>
+                                    <span>Year: 2026</span>
+                                </div>
+                                <button onClick={() => setIsSettingsOpen(true)} className="p-2.5 rounded-full bg-white/50 backdrop-blur-md border border-white/60 shadow-sm hover:bg-white/80 transition-all text-slate-600 flex items-center" title="Database Link Settings">
+                                    <i className="fa-solid fa-database text-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    {isSettingsOpen && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+                            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white max-w-lg w-full overflow-hidden p-6 relative">
+                                <button onClick={() => setIsSettingsOpen(false)} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 bg-white/50 rounded-full transition-colors">
+                                    <i className="fa-solid fa-xmark text-xl"></i>
+                                </button>
+                                
+                                <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center drop-shadow-sm">
+                                    <i className="fa-solid fa-database text-xl mr-3 text-indigo-600"></i> Database Connection
+                                </h2>
+                                <p className="text-slate-600 text-sm font-medium mb-6">
+                                    This dashboard is permanently linked to your Google Apps Script backend. You can update the link here if you ever recreate the sheet.
+                                </p>
+
+                                <div className="space-y-4">
+                                    <input type="text" value={scriptUrl} onChange={(e) => setScriptUrl(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-white shadow-inner bg-white/60 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all text-sm font-medium text-slate-500" />
+                                    <button onClick={saveUrlAndFetch} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center justify-center">
+                                        <i className="fa-solid fa-server text-lg mr-2"></i> Update & Re-Sync Connection
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <main className="relative z-10 pb-20">
+                        {selectedDeptId ? renderDepartmentDetail() : renderDashboard()}
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
